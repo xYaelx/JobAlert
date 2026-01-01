@@ -1,5 +1,4 @@
 import re
-import hashlib
 
 MED_REGEX = re.compile(
     r"(גונל|gonal|גונאל|גונל[-\s]?אף|"
@@ -10,9 +9,8 @@ MED_REGEX = re.compile(
 )
 
 GIVING_SELLING_INTENT = [ "למסירה", "למכירה", "מוכרת", "מוכר", "נותנת", "יש לי", "נשאר", "מסירה", "מכירה", "לתת", "לתרום" ]
-QUESTION_WORDS = ["מישהי", "מישהו", "יודעת", "יש המלצה", "איפה", "?"]
+QUESTION_WORDS = ["מישהי", "מישהו", "יודעת", "יש המלצה", "איפה"] # no ? after text normalization so check it by other words
 
-seen_hashes = set()
 
 def normalize_text(text: str) -> str:
     """
@@ -34,10 +32,8 @@ def normalize_text(text: str) -> str:
 
     return text
 
-def message_hash(text):
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-async def needs_llm_decision(chat_text):
+def needs_llm_decision(chat_text):
     """
     Filters out irrelevant messages.
 
@@ -62,7 +58,7 @@ async def needs_llm_decision(chat_text):
     decision["signals"]["words_count"] = words_count
 
     # 1. Filter out very short messages
-    if words_count < 4:
+    if words_count < 3:
         decision["reasons"].append("too_short")
         return decision
 

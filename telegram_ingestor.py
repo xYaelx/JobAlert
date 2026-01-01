@@ -1,10 +1,28 @@
 import asyncio
 from telethon import TelegramClient, events
+
 from config import TARGET_CHANNELS, API_ID, API_HASH
-from text_processor import normalize_text, needs_llm_decision, message_hash
+from text_processor import normalize_text, needs_llm_decision
+from db import (
+    get_connection,
+    init_db,
+    compute_message_hash,
+    get_cached_message,
+    touch_message,
+    insert_message,
+    cleanup_old_messages,
+)
+
+
+def send_alert(text, channel, sender, timestamp, llm_result):
+    pass
 
 
 async def main():
+    # database setup
+    conn = get_connection()
+    init_db(conn)
+
     client = TelegramClient("session", API_ID, API_HASH)
 
     @client.on(events.NewMessage(chats=TARGET_CHANNELS))
@@ -15,9 +33,9 @@ async def main():
 
             chat = event.chat
             channel_name = (
-                getattr(chat, "title", None)
-                or getattr(chat, "first_name", None)
-                or f"Chat {chat.id}"
+                    getattr(chat, "title", None)
+                    or getattr(chat, "first_name", None)
+                    or f"Chat {chat.id}"
             )
 
             sender = event.sender
@@ -32,38 +50,46 @@ async def main():
             msg_date = event.date.astimezone()
 
             chat_text = normalize_text(event.text)
-            # check for duplicates
-            chat_hash = message_hash(chat_text)
-            # # Exact duplicate
-            # exact = get_exact_duplicate(conn, message_hash)
-            # if exact:
-            #     row_id, extracted_json = exact
-            #     update_last_seen(conn, row_id)
-            #     return extracted_json  # reuse cached result
+            if not chat_text:
+                return
 
+            #  Check for exact duplicate
+            chat_hash = compute_message_hash(chat_text)
+            cached = get_cached_message(conn, chat_hash)
+            if cached:
+                row_id, extracted_json = cached
+                touch_message(conn, row_id)
+                return # skip LLM & alerts entirely
+
+            #  Decide if LLM is needed
             decision = await needs_llm_decision(chat_text)
-            print(f"chat_text: {chat_text}")
-            print(decision)
-            # if decision:
-            #     row_id, extracted_json = decision
-            # check if the message needs llm
-            # if decision["needs_llm"]:
-            #     llm_result = await classify_with_llm(chat_text)
-            #
-            # if decision["is_relevant"] or llm_result == "offer":
-            #     send_alert()
 
-            # insert_message(
-            #     conn,
-            #     message_hash,
-            #     simhash,
-            #     medication,
-            #     intent,
-            #     extracted_json,
-            # )
-            #
-            # cleanup_old_messages(conn)
-            #
+            # Check if the message needs llm
+            llm_result = None
+
+            if decision["needs_llm"]:
+                llm_result = await classify_with_llm(chat_text)
+
+            # Alert llogic
+            if decision["is_relevant"] or llm_result == "offer":
+                send_alert(
+                    text=chat_text,
+                    channel=channel_name,
+                    sender=sender_name,
+                    timestamp=msg_date,
+                    llm_result=llm_result,
+                )
+
+            # Store result in cache
+            insert_message(
+                conn,
+                chat_hash,
+                llm_result,
+            )
+
+            # Cleanup old cache entries
+            cleanup_old_messages(conn)
+
         except Exception as e:
             print(f"Error handling message: {e}")
 
