@@ -1,7 +1,8 @@
 import asyncio
 from telethon import TelegramClient, events
-
+import json
 from config import TARGET_CHANNELS, API_ID, API_HASH
+from llm_classifier import classify_with_llm
 from text_processor import normalize_text, needs_llm_decision
 from db import (
     get_connection,
@@ -62,7 +63,7 @@ async def main():
                 return # skip LLM & alerts entirely
 
             #  Decide if LLM is needed
-            decision = await needs_llm_decision(chat_text)
+            decision = needs_llm_decision(chat_text)
 
             # Check if the message needs llm
             llm_result = None
@@ -79,12 +80,16 @@ async def main():
                     timestamp=msg_date,
                     llm_result=llm_result,
                 )
-
+            final_status = (
+                "offer"
+                if decision["is_relevant"] or llm_result == "offer"
+                else "ignored"
+            )
             # Store result in cache
             insert_message(
                 conn,
                 chat_hash,
-                llm_result,
+                final_status,
             )
 
             # Cleanup old cache entries
