@@ -13,9 +13,19 @@ QUESTION_WORDS = ["מישהי", "מישהו", "יודעת", "יש המלצה", "
 
 
 def normalize_text(text: str) -> str:
-    """
-    Performs deterministic preprocessing on text, handling emojis, punctuation,
-    and whitespace to produce a clean, normalized string.
+    """Normalize and clean text for consistent processing.
+    
+    Performs deterministic preprocessing to handle variations in text:
+    - Converts to lowercase for case-insensitive matching
+    - Removes emojis, punctuation, and non-alphanumeric characters
+    - Normalizes whitespace (multiple spaces → single space)
+    
+    Args:
+        text: Raw input text (may contain mixed case, emojis, punctuation).
+        
+    Returns:
+        Normalized text suitable for heuristic matching and LLM classification.
+        Returns empty string if input is not a string.
     """
     if not isinstance(text, str):
         return ""
@@ -33,20 +43,29 @@ def normalize_text(text: str) -> str:
     return text
 
 
-def needs_llm_decision(chat_text):
+def needs_llm_decision(chat_text: str) -> dict:
+    """Determine if message requires LLM classification.
+    
+    Applies heuristic filters in sequence to classify messages without LLM.
+    Messages that pass heuristic filters or need disambiguation are routed
+    to LLM; others are filtered out early for efficiency.
+    
+    Filter sequence:
+    1. Message length (minimum 3 words)
+    2. Medication mention (regex pattern match)
+    3. Question detection (common Hebrew question words)
+    4. Explicit giving/selling intent (keyword pattern match)
+    
+    Args:
+        chat_text: Normalized message text.
+        
+    Returns:
+        Dictionary with keys:
+            - is_relevant (bool): Message appears to be a medication offer
+            - needs_llm (bool): LLM classification required for disambiguation
+            - reasons (list): Chain of filtering decisions for debugging
+            - signals (dict): Extracted features used in decisions
     """
-    Filters out irrelevant messages.
-
-    Returns a decision object with:
-    - is_relevant: message is an offer for fertility meds
-    - needs_llm: requires LLM to disambiguate
-    - reasons: decision trace for debugging
-    - signals: extracted heuristic signals
-
-    :param chat_text: normalized message text
-    :return: dict
-    """
-
     decision = {
         "is_relevant": False,
         "needs_llm": False,

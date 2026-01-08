@@ -15,11 +15,36 @@ from db import (
 )
 
 
-def send_alert(text, channel, sender, timestamp, llm_result):
+def send_alert(
+    text: str,
+    channel: str,
+    sender: str,
+    timestamp,
+    llm_result: str
+) -> None:
+    """Send alert notification to configured channels.
+    
+    Triggers notification dispatch when a message is classified as an offer.
+    Currently a stub; future implementations will support multiple channels
+    (email, webhook, Telegram bot, etc.).
+    
+    Args:
+        text: The original message text.
+        channel: Name of the source Telegram channel/group.
+        sender: Username or name of the message sender.
+        timestamp: Datetime when the message was posted.
+        llm_result: Classification result from LLM ("offer" or "not_offer").
+    """
     pass
 
-
-async def main():
+async def main() -> None:
+    """Initialize and run the Telegram message ingestion pipeline.
+    
+    Establishes database connection, creates Telegram client, registers
+    message event handler, and listens for new messages in configured channels.
+    Processes each message through heuristic filtering and optional LLM
+    classification, caching results and sending alerts for offers.
+    """
     # database setup
     conn = get_connection()
     init_db(conn)
