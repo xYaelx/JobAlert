@@ -13,29 +13,7 @@ from db import (
     insert_message,
     cleanup_old_messages,
 )
-
-
-def send_alert(
-    text: str,
-    channel: str,
-    sender: str,
-    timestamp,
-    llm_result: str
-) -> None:
-    """Send alert notification to configured channels.
-    
-    Triggers notification dispatch when a message is classified as an offer.
-    Currently a stub; future implementations will support multiple channels
-    (email, webhook, Telegram bot, etc.).
-    
-    Args:
-        text: The original message text.
-        channel: Name of the source Telegram channel/group.
-        sender: Username or name of the message sender.
-        timestamp: Datetime when the message was posted.
-        llm_result: Classification result from LLM ("offer" or "not_offer").
-    """
-    pass
+from notifier import send_alert
 
 async def main() -> None:
     """Initialize and run the Telegram message ingestion pipeline.
