@@ -49,10 +49,10 @@ Telegram Channels (4 target groups)
 
 | Component | Purpose | File |
 |-----------|---------|------|
-| **Telegram Ingestor** | Connects to Telegram, receives messages, orchestrates pipeline | `telegram_ingestor.py` |
+| **Telegram Ingestor** | *Main entry point* Connects to Telegram, receives messages, orchestrates pipeline | `telegram_ingestor.py` |
 | **Text Processor** | Normalizes text, applies heuristic filters | `text_processor.py` |
 | **LLM Classifier** | Calls OpenAI GPT-4 for classification | `llm_classifier.py` |
-| **Database** | Caches messages using SHA-256 deduplication | `db.py` |
+| **Database** | Caches messages (to a SQLite DB) using SHA-256 deduplication | `db.py` |
 | **Notifier** | Sends alerts when offers are detected | `notifier.py` |
 | **Config** | Environment variables and target channels | `config.py` |
 
