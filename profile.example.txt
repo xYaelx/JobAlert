@@ -1,0 +1,8 @@
+Copy this file to profile.txt (gitignored) and replace the text below with your own profile.
+The classifier inserts it into the LLM prompt as-is.
+
+Role: <your current role and specialization>
+Experience: <years of experience and main tools/frameworks>
+Looking for: <target roles>
+Location: <countries/cities, on-site/hybrid/remote preferences>
+Seniority fit: <what counts as relevant, what counts as borderline (e.g. slightly more years required), what is out of range>
