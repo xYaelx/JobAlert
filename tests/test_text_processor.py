@@ -1,4 +1,19 @@
-from text_processor import normalize_text, needs_llm_decision
+from config import JOB_KEYWORDS
+from text_processor import normalize_text, needs_llm_decision, build_job_regex
+
+# The regex is built from a plain keyword list
+def test_build_job_regex_from_plain_keywords():
+    regex = build_job_regex(["computer vision", "ml", "למידה עמוקה"])
+    assert regex.search("senior computer vision engineer")
+    assert regex.search("ml researcher")
+    assert not regex.search("html developer")       # ASCII keywords match whole words only
+    assert regex.search("ניסיון בלמידה עמוקה")      # Hebrew keywords allow an attached prefix letter
+
+# Every configured keyword triggers the prefilter
+def test_every_config_keyword_triggers_llm():
+    for keyword in JOB_KEYWORDS:
+        decision = needs_llm_decision(normalize_text(f"hiring {keyword} engineer now"))
+        assert decision["needs_llm"], keyword
 
 # Test for the normalize_text function
 def test_normalize_text():

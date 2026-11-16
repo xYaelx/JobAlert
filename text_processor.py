@@ -1,14 +1,23 @@
 import re
 import unicodedata
+from config import JOB_KEYWORDS
 
-JOB_REGEX = re.compile(
-    r"(computer vision|deep learning|machine learning|"
-    r"pytorch|opencv|tensorflow|"
-    r"algorithms?|image processing|object detection|segmentation|perception|"
-    r"\bml\b|\bdl\b|\bmlops\b|"
-    r"ראייה ממוחשבת|ראיה ממוחשבת|למידה עמוקה|למידת מכונה|אלגוריתמיקאי|אלגוריתמים)",
-    re.IGNORECASE
-)
+
+def build_job_regex(keywords: list[str]) -> re.Pattern:
+    """Build a case-insensitive regex matching any of the plain keyword phrases.
+
+    ASCII keywords match whole words only ("ml" must not match "html").
+    Hebrew keywords match as substrings, since Hebrew attaches prefix
+    letters (ב, ל, ו...) directly to the word ("בלמידה עמוקה").
+    """
+    patterns = [
+        rf"\b{re.escape(kw)}\b" if kw.isascii() else re.escape(kw)
+        for kw in keywords
+    ]
+    return re.compile("|".join(patterns), re.IGNORECASE)
+
+
+JOB_REGEX = build_job_regex(JOB_KEYWORDS)
 
 
 def normalize_text(text: str) -> str:

@@ -13,6 +13,15 @@ TARGET_CHANNELS = {
     '@hitechjobsdatascience': 'Hi-Tech Jobs - Data Science',
 }
 
+# Job-post prefilter keywords, as plain phrases matched against normalized text
+JOB_KEYWORDS = [
+    "computer vision", "deep learning", "machine learning",
+    "pytorch", "opencv", "tensorflow",
+    "algorithm", "algorithms", "image processing", "object detection", "segmentation", "perception",
+    "ml", "dl", "mlops",
+    "ראייה ממוחשבת", "ראיה ממוחשבת", "למידה עמוקה", "למידת מכונה", "אלגוריתמיקאי", "אלגוריתמים",
+]
+
 
 
 
