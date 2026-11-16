@@ -26,25 +26,40 @@ class TestNotifierFunctions(unittest.TestCase):
         Test that send_alert prints the alert message with correct format.
         """
         # Run the async function
-        test_time = datetime(2026, 2, 10, 12, 30, 45)
+        test_time = datetime(2026, 11, 16, 13, 2, 45)
         asyncio.run(send_alert(
-            text="גוּנָל F-75 עם מחט",
-            channel="קבוצת מסירה",
-            sender="יוסי כהן",
+            text="computer vision algorithm engineer pytorch tel aviv",
+            channel="@secretmachinelearningjobs",
+            sender="Recruiter",
             timestamp=test_time,
-            llm_result="offer"
+            llm_result="relevant"
         ))
 
         # Get the printed output
         output = self.captured_output.getvalue()
 
         # Verify the alert contains expected fields
-        self.assertIn("[ALERT] Offer detected!", output)
-        self.assertIn("Channel: קבוצת מסירה", output)
-        self.assertIn("Sender: יוסי כהן", output)
-        self.assertIn("Time (UTC): 2026-02-10 12:30:45", output)
-        self.assertIn("Message: גוּנָל F-75 עם מחט", output)
-        self.assertIn("LLM Result: offer", output)
+        self.assertIn("[ALERT] Relevant job in @secretmachinelearningjobs, posted 16.11 13:02", output)
+        self.assertIn("Sender: Recruiter", output)
+        self.assertIn("Message: computer vision algorithm engineer pytorch tel aviv", output)
+        self.assertNotIn("Offer", output)
+
+    def test_send_alert_borderline_label(self):
+        """
+        Test that the borderline label is shown in the headline.
+        """
+        test_time = datetime(2026, 1, 5, 9, 7, 0)
+        asyncio.run(send_alert(
+            text="Some message",
+            channel="test_channel",
+            sender="test_sender",
+            timestamp=test_time,
+            llm_result="borderline"
+        ))
+
+        output = self.captured_output.getvalue()
+
+        self.assertIn("[ALERT] Borderline job in test_channel, posted 05.01 09:07", output)
 
     def test_send_alert_with_none_llm_result(self):
         """
@@ -61,8 +76,7 @@ class TestNotifierFunctions(unittest.TestCase):
 
         output = self.captured_output.getvalue()
 
-        self.assertIn("[ALERT] Offer detected!", output)
-        self.assertIn("LLM Result: None", output)
+        self.assertIn("[ALERT] Matching job in test_channel, posted 10.02 15:45", output)
 
 
 if __name__ == '__main__':
