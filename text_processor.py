@@ -1,12 +1,11 @@
 import re
+import unicodedata
 
-# normalize_text strips punctuation without inserting a space ("computer-vision" -> "computervision"),
-# so multi-word terms allow an optional space
 JOB_REGEX = re.compile(
-    r"(computer\s?vision|deep\s?learning|machine\s?learning|"
+    r"(computer vision|deep learning|machine learning|"
     r"pytorch|opencv|tensorflow|"
-    r"algorithms?|image\s?processing|object\s?detection|segmentation|perception|"
-    r"\bml|\bdl\b|"
+    r"algorithms?|image processing|object detection|segmentation|perception|"
+    r"\bml\b|\bdl\b|\bmlops\b|"
     r"ראייה ממוחשבת|ראיה ממוחשבת|למידה עמוקה|למידת מכונה|אלגוריתמיקאי|אלגוריתמים)",
     re.IGNORECASE
 )
@@ -17,7 +16,9 @@ def normalize_text(text: str) -> str:
     
     Performs deterministic preprocessing to handle variations in text:
     - Converts to lowercase for case-insensitive matching
-    - Removes emojis, punctuation, and non-alphanumeric characters
+    - Drops combining marks (e.g. Hebrew niqqud) so words stay whole
+    - Replaces emojis, punctuation, and other non-word characters with a space
+      ("computer-vision" → "computer vision", "4/26" → "4 26")
     - Normalizes whitespace (multiple spaces → single space)
     
     Args:
@@ -33,11 +34,14 @@ def normalize_text(text: str) -> str:
     # 1. Convert to lowercase
     text = text.lower()
 
-    # 2. Remove emojis, punctuation, and other non-alphanumeric/non-space symbols.
-    # [^\w\s] matches anything that is NOT a word character (letter\char\underscore) or whitespace.
-    text = re.sub(r'[^\w\s]', '', text, flags=re.UNICODE)
+    # 2. Drop combining marks (niqqud, accents); they are not \w and would otherwise split words
+    text = "".join(ch for ch in text if not unicodedata.category(ch).startswith("M"))
 
-    # 3. Normalize whitespace: replace multiple spaces with a single space and strip leading/trailing spaces
+    # 3. Replace emojis, punctuation, and other non-alphanumeric/non-space symbols with a space.
+    # [^\w\s] matches anything that is NOT a word character (letter\char\underscore) or whitespace.
+    text = re.sub(r'[^\w\s]', ' ', text, flags=re.UNICODE)
+
+    # 4. Normalize whitespace: replace multiple spaces with a single space and strip leading/trailing spaces
     text = re.sub(r'\s+', ' ', text).strip()
 
     return text
