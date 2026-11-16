@@ -1,8 +1,8 @@
 import openai
-import asyncio
 from typing import Literal
 from abc import ABC, abstractmethod
 from enum import Enum
+from openai import AsyncOpenAI
 from config import GPT_API_KEY
 
 # Set API key
@@ -35,28 +35,17 @@ class LLMClassifier(ABC):
         pass
 
 class OpenAIClassifier(LLMClassifier):
-    """LLM classifier using OpenAI's GPT models.
+    """LLM classifier using OpenAI's GPT models (v1.0.0+ SDK)."""
     
-    Communicates with OpenAI API to classify fertility medication offer messages.
-    Uses GPT-4 with temperature=0 for deterministic binary classification.
-    """
+    def __init__(self):
+        # Initialize the Async client once when the classifier is created
+        self.client = AsyncOpenAI(api_key=GPT_API_KEY)
     
     async def classify(self, text: str) -> Literal["offer", "not_offer"]:
-        """Classify a message using OpenAI GPT-4.
-        
-        Args:
-            text: The normalized message text to classify.
-            
-        Returns:
-            "offer" if message indicates availability of fertility medication,
-            "not_offer" otherwise.
-            
-        Defaults to "not_offer" if response is invalid or raises exception.
-        """
+        """Classify a message using OpenAI GPT-4."""
         try:
-            # Call the OpenAI API with the classification request
-            response = await openai.ChatCompletion.create(
-                model="gpt-4",  # Use a cheaper and faster model if needed like gpt-3.5 or gpt-4 if available
+            response = await self.client.chat.completions.create(
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": (
                         "You are a classifier. "
@@ -66,51 +55,37 @@ class OpenAIClassifier(LLMClassifier):
                     {"role": "user", "content": f'Message: "{text}"'}
                 ],
                 temperature=0,
-                max_tokens=1,  # Only one word response
+                max_tokens=1,
             )
 
-            # Extract the result
-            result = response['choices'][0]['message']['content'].strip().lower()
+            # FIX 1: Safely handle potential None value for content
+            raw_content = response.choices[0].message.content
+            if not raw_content:
+                return "not_offer"
 
-            # Check that the response is either 'offer' or 'not_offer'
-            if result not in {"offer", "not_offer"}:
-                return "not_offer"  # Default to "not_offer" if response is invalid
+            result = raw_content.strip().lower()
+
+            if result == "offer":
+                return "offer"
             
-            return result
+            return "not_offer"
 
         except Exception as e:
             print(f"Error in LLM classification: {e}")
-            return "not_offer"  # Default to "not_offer" in case of any error
+            return "not_offer"
 
 class AnthropicClassifier(LLMClassifier):
-    """LLM classifier using Anthropic's Claude models.
-    
-    Stub implementation for future integration with Anthropic API.
-    """
-    
+    """LLM classifier using Anthropic's Claude models. Stub."""
     async def classify(self, text: str) -> Literal["offer", "not_offer"]:
-        """Classify a message using Anthropic Claude.
-        
-        Args:
-            text: The normalized message text to classify.
-            
-        Returns:
-            "offer" if message indicates availability of fertility medication,
-            "not_offer" otherwise.
-        """
-        pass  # TODO: Implement Claude integration
+        raise NotImplementedError("Anthropic classification not yet implemented")
+ 
 
 async def classify_with_llm(text: str) -> Literal["offer", "not_offer"]:
-    """Classify a message using the default LLM classifier.
-    
-    Convenience function that uses OpenAIClassifier for text classification.
-    
-    Args:
-        text: The normalized message text to classify.
-        
-    Returns:
-        "offer" if message indicates availability of fertility medication,
-        "not_offer" otherwise.
+    """
+    Convenience function. 
+    Note: For production efficiency, you might want to reuse a 
+    single OpenAIClassifier instance rather than creating a new client 
+    per request.
     """
     classifier = OpenAIClassifier()
     return await classifier.classify(text)
