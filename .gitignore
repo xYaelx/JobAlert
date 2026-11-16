@@ -1,0 +1,15 @@
+__pycache__/
+
+# Secrets and Telegram sessions
+.env
+GPT_key.txt
+*.session
+*.session-journal
+
+# Personal profile used by the LLM prompt (see profile.example.txt)
+profile.txt
+
+# Local data
+jobs_messages.csv
+messages_cache.db
+Thunderbit_*.csv
