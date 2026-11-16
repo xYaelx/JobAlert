@@ -75,19 +75,16 @@ async def main() -> None:
                 llm_result = await classify_with_llm(chat_text)
 
             # Alert llogic
-            if decision["is_relevant"] or llm_result == "offer":
-                send_alert(
+            is_match = decision["is_relevant"] or llm_result in ("relevant", "borderline")
+            if is_match:
+                await send_alert(
                     text=chat_text,
                     channel=channel_name,
                     sender=sender_name,
                     timestamp=msg_date,
                     llm_result=llm_result,
                 )
-            final_status = (
-                "offer"
-                if decision["is_relevant"] or llm_result == "offer"
-                else "ignored"
-            )
+            final_status = llm_result if is_match else "ignored"
             # Store result in cache
             insert_message(
                 conn,
