@@ -78,8 +78,8 @@ Message: computer vision algorithm engineer pytorch
 All commands below are PowerShell and run **from the project root**.
 
 ```powershell
-git clone https://github.com/xYaelx/MedAlert.git
-Set-Location MedAlert
+git clone https://github.com/xYaelx/JobAlert.git
+Set-Location JobAlert
 uv sync
 ```
 
