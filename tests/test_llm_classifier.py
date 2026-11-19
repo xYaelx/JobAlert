@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import llm_classifier
 from llm_classifier import load_profile, build_system_prompt, JOB_LABELS, SYSTEM_PROMPT_TEMPLATE
@@ -17,7 +19,7 @@ def test_load_profile_missing_file_points_to_example(tmp_path):
 
 
 def test_example_profile_is_loadable():
-    assert load_profile("profile.example.txt")
+    assert load_profile(Path(__file__).resolve().parent.parent / "profile.example.txt")
 
 
 def test_system_prompt_includes_profile_and_labels():

@@ -2,7 +2,10 @@ import asyncio
 import csv
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from export_messages import fetch_rows, write_csv
+
+import pytest
+
+from export_messages import fetch_rows, write_csv, main
 
 
 class FakeClient:
@@ -48,3 +51,81 @@ def test_write_csv_has_expected_columns_and_keeps_hebrew_and_newlines(tmp_path):
         reader = csv.DictReader(f)
         assert reader.fieldnames == ["channel", "date", "text", "label"]
         assert list(reader) == rows
+
+
+class FakeSessionClient:
+    """Stands in for a connected TelegramClient used as `async with` in main()."""
+
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.fetched = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+    async def iter_messages(self, entity, limit):
+        self.fetched.append(entity)
+        if self.fail:
+            raise ConnectionError("synthetic fetch failure")
+        yield make_msg(f"synthetic post from {entity}", 10)
+
+
+# Synthetic stand-in for a labeled export
+EXISTING_EXPORT = "channel,date,text,label\r\nSynthetic,2026-01-01 00:00,synthetic post,relevant\r\n".encode("utf-8-sig")
+
+
+def read_rows(path):
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def test_main_refuses_to_overwrite_existing_output(tmp_path):
+    output = tmp_path / "jobs_messages.csv"
+    output.write_bytes(EXISTING_EXPORT)
+    created = []
+
+    def client_factory():
+        created.append(True)
+        return FakeSessionClient()
+
+    with pytest.raises(SystemExit) as excinfo:
+        asyncio.run(main([], output_path=output, client_factory=client_factory))
+
+    message = str(excinfo.value.code)
+    assert "already exists" in message and "--force" in message
+    assert output.read_bytes() == EXISTING_EXPORT
+    assert created == []  # Telegram is never contacted
+
+
+def test_main_force_replaces_existing_output(tmp_path):
+    output = tmp_path / "jobs_messages.csv"
+    output.write_bytes(EXISTING_EXPORT)
+    client = FakeSessionClient()
+
+    asyncio.run(main(["--force"], output_path=output, client_factory=lambda: client))
+
+    rows = read_rows(output)
+    assert client.fetched and len(rows) == len(client.fetched)
+    assert all(row["label"] == "" for row in rows)
+
+
+def test_main_writes_output_when_none_exists(tmp_path):
+    output = tmp_path / "jobs_messages.csv"
+    client = FakeSessionClient()
+
+    asyncio.run(main([], output_path=output, client_factory=lambda: client))
+
+    assert len(read_rows(output)) == len(client.fetched) > 0
+
+
+def test_failed_fetch_keeps_existing_output_even_with_force(tmp_path):
+    output = tmp_path / "jobs_messages.csv"
+    output.write_bytes(EXISTING_EXPORT)
+
+    with pytest.raises(ConnectionError):
+        asyncio.run(main(["--force"], output_path=output, client_factory=lambda: FakeSessionClient(fail=True)))
+
+    assert output.read_bytes() == EXISTING_EXPORT

@@ -1,5 +1,7 @@
+import argparse
 import asyncio
 import csv
+import os
 from telethon import TelegramClient
 from config import TARGET_CHANNELS, API_ID, API_HASH
 
@@ -41,11 +43,27 @@ def write_csv(rows: list[dict], path: str) -> None:
         writer.writerows(rows)
 
 
-async def main() -> None:
-    async with TelegramClient("session", API_ID, API_HASH) as client:
+def make_client() -> TelegramClient:
+    return TelegramClient("session", API_ID, API_HASH)
+
+
+async def main(argv: list[str] | None = None, output_path=OUTPUT_PATH, client_factory=make_client) -> None:
+    parser = argparse.ArgumentParser(description="Export recent channel messages for manual labeling.")
+    parser.add_argument("--force", action="store_true", help=f"overwrite an existing {OUTPUT_PATH}")
+    args = parser.parse_args(argv)
+
+    # An existing export may hold hand-written labels: refuse before contacting Telegram
+    if os.path.exists(output_path) and not args.force:
+        raise SystemExit(
+            f"{output_path} already exists and may contain your labels. "
+            "Move or rename it first, or rerun with --force to overwrite it."
+        )
+
+    async with client_factory() as client:
         rows = await fetch_rows(client, TARGET_CHANNELS)
-    write_csv(rows, OUTPUT_PATH)
-    print(f"Wrote {len(rows)} messages to {OUTPUT_PATH}")
+    # Written only after a successful fetch, so a failed fetch leaves the existing file untouched
+    write_csv(rows, output_path)
+    print(f"Wrote {len(rows)} messages to {output_path}")
 
 
 if __name__ == "__main__":

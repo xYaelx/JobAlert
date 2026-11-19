@@ -13,3 +13,13 @@ profile.txt
 jobs_messages.csv
 messages_cache.db
 Thunderbit_*.csv
+
+# SQLite write-ahead log and shared-memory files (db.py enables WAL mode)
+messages_cache.db-wal
+messages_cache.db-shm
+
+# Renamed or labeled copies of the export, at the repo root only,
+# so CSV test fixtures in subfolders stay trackable
+/jobs_messages*.csv
+/*[Ll]abeled*.csv
+/*[Ll]abelled*.csv
