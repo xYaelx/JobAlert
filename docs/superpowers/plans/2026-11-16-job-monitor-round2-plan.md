@@ -1,6 +1,6 @@
 # Job monitor, round 2 fixes — plan
 
-Follow-up to the pivot from medication monitor to CV/ML job-post monitor.
+Follow-up fixes for the Telegram CV/ML job-post monitor.
 All new code is test-first (test → watch it fail → implement). One commit per task.
 
 1. `.gitignore`: GPT_key.txt, .env, *.session(-journal), profile.txt, jobs_messages.csv, local data files.

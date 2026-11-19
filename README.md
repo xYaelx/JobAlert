@@ -1,88 +1,91 @@
-# MedAlert: GenAI Classifier for Fertility Medication Offers
+# Telegram CV/ML Job-Post Monitor
 
-Automated detection and alerting system for fertility medication offers in Hebrew Telegram communities. MedAlert uses a hybrid heuristic + LLM approach to efficiently identify legitimate medication offers (Gonal, Cetrotide, Menopur, Ovitrelle) with minimal API costs.
+Watches Telegram tech-job channels for new posts, filters them with a keyword prefilter, and asks an LLM how well
+each remaining post fits a candidate profile. Posts labeled `relevant` or `borderline` are printed as console
+alerts. A separate exporter pulls recent channel messages into a CSV for manual labeling.
 
-## 🎯 Problem Statement
+## How it works
 
-Israeli fertility communities use Telegram to share and offer medications. Manually monitoring these channels for medication availability is time-consuming. **MedAlert automates this with intelligent filtering and LLM classification.**
+The monitor (`telegram_ingestor.py`) processes each new message posted in the configured channels while it runs
+(there is no backfill of older messages):
 
-## ✨ Key Features
-
-- **Telegram Monitoring**: Listens to configured channels in real-time
-- **Heuristic Filtering**: Pre-filters messages using medication regex and intent patterns (~70% reduction in LLM calls)
-- **LLM Classification**: GPT-4 classification for messages that pass heuristic checks
-- **Message Deduplication**: SHA-256 hashing prevents duplicate alerts
-- **Cost Optimization**: Only calls LLM on ~30% of messages, reducing API costs by 70%+
-- **Alert Notifications**: Prints formatted alerts to console
-
----
-
-## 🏗️ System Architecture
-
-```
-Telegram Channels (4 target groups)
-           ↓
-    [Telegram Ingestor]
-           ↓
-    [Message Received]
-           ↓
-    [Text Processor] → normalize text, remove emojis
-           ↓
-    [Heuristic Filter] → medication regex + intent keywords
-           ├→ Not relevant → Skip
-           └→ Relevant → Continue
-           ↓
-    [Deduplication] → Check message hash in database
-           ├→ Already seen → Touch last_seen, Skip LLM
-           └→ New message → Continue
-           ↓
-    [LLM Classifier] → GPT-4: "offer" or "not_offer"
-           ├→ not_offer → Cache, Done
-           └→ offer → Continue
-           ↓
-    [Notifier] → Print alert to console
-           ↓
-    [Database] → Cache message for future deduplication
+```mermaid
+flowchart TD
+    A[New message in a configured channel] --> B{Has text?}
+    B -- no --> Z[Skip]
+    B -- yes --> C[Normalize text]
+    C --> D{Empty after normalizing?}
+    D -- yes --> Z
+    D -- no --> E{Hash already in cache?}
+    E -- yes --> F[Refresh last_seen and stop]
+    E -- no --> G{3+ words and a job keyword?}
+    G -- no --> S[Store label or ignored]
+    G -- yes --> H[Create LLM client and load profile]
+    H -- no key or no profile --> X[Print error, nothing cached]
+    H -- ok --> I[Classify with gpt-4]
+    I --> J{relevant or borderline?}
+    J -- yes --> K[Print console alert]
+    J -- no --> S
+    K --> S
+    S --> T[Delete cache entries unseen for 5 days]
 ```
 
-### Component Breakdown
+- **Normalization** lowercases the text, drops combining marks (e.g. Hebrew vowel points) and turns punctuation and
+  emoji into spaces.
+- **Deduplication** is an exact match on the SHA-256 hash of the normalized text. The SQLite cache stores hashes
+  and labels, not message text.
+- **Keywords** come from `config.JOB_KEYWORDS`. English keywords match whole words only (`ml` does not match
+  `html`); Hebrew keywords also match with an attached prefix letter (ב, ל, ו …).
+- **Classification** uses OpenAI `gpt-4` at temperature 0 and returns `relevant`, `borderline` or `not_relevant`.
+  Only `relevant` and `borderline` produce an alert; everything else is stored as `ignored`.
 
-| Component | Purpose | File |
-|-----------|---------|------|
-| **Telegram Ingestor** | *Main entry point* Connects to Telegram, receives messages, orchestrates pipeline | `telegram_ingestor.py` |
-| **Text Processor** | Normalizes text, applies heuristic filters | `text_processor.py` |
-| **LLM Classifier** | Calls OpenAI GPT-4 for classification | `llm_classifier.py` |
-| **Database** | Caches messages (to a SQLite DB) using SHA-256 deduplication | `db.py` |
-| **Notifier** | Sends alerts when offers are detected | `notifier.py` |
-| **Config** | Environment variables and target channels | `config.py` |
+### Failure handling
 
----
+Classification can fail in two different places:
 
-## 🚀 Quick Start
+- **During the API call** – network errors, an invalid key, rate limits, an empty or unexpected answer: the
+  classifier prints the error (if any) and returns `not_relevant`. The message is stored as `ignored`, so an
+  identical repost is deduplicated and not classified again.
+- **Before the API call** – a new classifier is created for every message that reaches the LLM. If no OpenAI key is
+  set at all, the OpenAI client refuses to start; if `profile.txt` is missing, loading the profile fails. Either
+  error reaches the message handler, which prints `Error handling message: …`. Nothing is alerted or cached, so the
+  same text is processed again if it reappears.
 
-### Prerequisites
+Example alert (time in the machine's local time zone, message shown normalized):
 
-- Python 3.10+
-- Telegram API credentials (get from [my.telegram.org](https://my.telegram.org))
-- OpenAI API key
-
-### 1. Clone & Setup
-
-```bash
-git clone https://github.com/yourusername/MedAlert.git
-cd MedAlert
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+```
+[ALERT] Relevant job in Example Jobs Channel, posted 16.11 13:02
+Sender: Example Recruiter
+Message: computer vision algorithm engineer pytorch
 ```
 
-### 2. Configure Environment
+## Requirements
 
-Create a `.env` file in the project root:
+- Python 3.13 or newer (if missing, `uv python install 3.13` can provide it)
+- [uv](https://docs.astral.sh/uv/)
+- Telegram API credentials from [my.telegram.org/apps](https://my.telegram.org/apps)
+- An OpenAI API key and a local `profile.txt` — needed by the monitor only
+
+| | Exporter | Monitor |
+|---|---|---|
+| `TELEGRAM_API_ID` (must be a number) | required — checked when `config.py` is imported | required — same check |
+| `TELEGRAM_API_HASH` | required for Telegram sign-in | required for Telegram sign-in |
+| `OPENAI_API_KEY` | not used | not checked at startup; see [Failure handling](#failure-handling) |
+| `profile.txt` | not used | not checked at startup; see [Failure handling](#failure-handling) |
+
+## Setup
+
+All commands below are PowerShell and run **from the project root**.
+
+```powershell
+git clone https://github.com/xYaelx/MedAlert.git
+Set-Location MedAlert
+uv sync
+```
+
+### Settings (`.env`)
+
+Create `.env` in the project root (gitignored) with:
 
 ```env
 TELEGRAM_API_ID=your_api_id
@@ -90,278 +93,120 @@ TELEGRAM_API_HASH=your_api_hash
 OPENAI_API_KEY=your_openai_key
 ```
 
-**To get Telegram credentials:**
-1. Go to [my.telegram.org/apps](https://my.telegram.org/apps)
-2. Create a new application
-3. Copy `API_ID` and `API_HASH`
+`config.py` calls `load_dotenv()`, which searches for `.env` starting in the folder that contains `config.py` and
+then its parent folders — not the folder you run from. Everything else uses the **current folder**: the Telegram
+session (`session.session`), the cache (`messages_cache.db`) and the export (`jobs_messages.csv`). Running from
+the project root keeps them all in one place and reuses the same Telegram sign-in.
 
-### 3. Run the Ingestor
+### Candidate profile
 
-```bash
-python -m telegram_ingestor
+```powershell
+Copy-Item profile.example.txt profile.txt
 ```
 
-You'll see alerts printed to console when medication offers are detected:
+Then open `profile.txt` and replace **all** of its text — including the instruction lines at the top and every
+`<placeholder>` — with your own description (role, experience, target roles, locations, what counts as a good or
+borderline fit). The whole file is inserted into the LLM prompt as-is. `profile.txt` is gitignored; the tracked
+prompt in `llm_classifier.py` is a generic template with a `{profile}` placeholder.
 
-```
-[ALERT] Offer detected!
-Channel: קבוצת מסירה ולא מכירה
-Sender: Sarah Cohen
-Time (UTC): 2026-02-10 12:30:45
-Message: יש לי גונל F-75 עם מחט
-LLM Result: offer
-```
+### Channels and keywords (`config.py`)
 
----
-
-## ⚙️ Configuration
-
-### Target Channels
-
-Edit `config.py` to add/remove Telegram channels to monitor:
+Public channels can be listed by username, private channels you belong to by their numeric ID:
 
 ```python
 TARGET_CHANNELS = {
-    -1001406308981: 'קבוצת מסירה ולא מכירה',
-    -1001486624364: 'מחיר עלות 💗',
-    -1001359530267: 'זו לזו - נתינה ומסירה באהבה',
-    -1002314434225: 'Secret Machine Learning Jobs',  # Test channel
+    '@example_public_channel': 'Example public channel',
+    -1000000000000: 'Example private channel',  # fictional placeholder; use your channel's ID
 }
+
+JOB_KEYWORDS = ["computer vision", "deep learning", "pytorch"]  # shortened; see config.py for the full list
 ```
 
-### LLM Model Selection
+Join the channels you want to monitor with the Telegram account you sign in with.
 
-In `llm_classifier.py`, change the model:
+## Usage
 
-```python
-response = await asyncio.to_thread(
-    openai.ChatCompletion.create,
-    model="gpt-4",  # Change to "gpt-3.5-turbo" for cost savings
-    temperature=0,
-    max_tokens=1,
-    messages=[...]
-)
+### Telegram sign-in
+
+The first run of either command signs in to Telegram in the terminal: it asks for your phone number, then the
+login code Telegram sends you, and — only if your account has two-step verification — your password. The session
+is saved as `session.session` in the current folder and reused by both commands afterwards. Never share the code,
+password or session file.
+
+### Run the monitor
+
+```powershell
+uv run python -m telegram_ingestor
 ```
 
----
+It prints `Listening to Telegram channels...` and then alerts as matching posts arrive. Stop it with `Ctrl+C`.
 
-## 🧪 Testing
+### Export messages for labeling
 
-Run the test suite:
-
-```bash
-# Test database functions
-python -m unittest tests.DBTest -v
-
-# Test text processing
-python -m unittest tests.TextProcessungTest -v
-
-# Test notifier
-python -m unittest tests.NotifierTest -v
-
-# Run all tests
-python -m unittest discover tests -v
+```powershell
+uv run python export_messages.py
 ```
 
----
+Writes the last 100 text messages from each configured channel to `jobs_messages.csv` with the columns `channel`,
+`date` (UTC), `text` and an empty `label` column for you to fill in. The file is UTF-8 with BOM so Excel shows
+Hebrew correctly.
 
-## 🔧 How It Works: Deep Dive
+**Existing exports are protected by default.** If `jobs_messages.csv` already exists, the exporter stops with a
+message before contacting Telegram and leaves the file untouched. To replace it on purpose:
 
-### 1. Heuristic Filtering (text_processor.py)
-
-Applies lightweight rules before calling expensive LLM:
-
-```python
-# Matches medication names (Hebrew + English)
-MED_REGEX = r"(גונל|gonal|צטרוטייד|cetrotide|...)"
-
-# Matches selling/giving intent
-GIVING_SELLING_INTENT = ["למסירה", "למכירה", "יש לי", "נותנת", ...]
-
-# Filters out questions
-QUESTION_WORDS = ["מישהי", "יודעת", "איפה", ...]
+```powershell
+uv run python export_messages.py --force
 ```
 
-**Result**: ~70% of messages filtered before LLM, reducing API calls and costs.
+> ⚠️ `--force` overwrites `jobs_messages.csv`, **including every label you have added**. Move or rename a labeled
+> file first.
 
-### 2. Deduplication (db.py)
+The new file is written only after all messages were fetched, so a failed fetch leaves an existing file as it was.
+The existence check happens *before* the fetch, though: a file created at the same path while the export runs
+would still be overwritten.
 
-Uses SHA-256 hashing to prevent duplicate alerts:
+## Data hygiene
 
-```python
-message_hash = sha256(normalized_text.encode()).hexdigest()
-cached = get_cached_message(conn, message_hash)
+Credentials, Telegram sessions, `profile.txt`, the SQLite cache (including its WAL files) and `jobs_messages.csv`
+are gitignored. Renamed or labeled copies of the export are ignored **only at the repo root** and only when named
+`jobs_messages*.csv`, `*labeled*.csv` or `*labelled*.csv` (lowercase or capital first `L`). Anything else, such as
+`data/jobs_labeled.csv`, is not ignored.
 
-if cached:
-    touch_message(conn, cached.id)  # Update last_seen, skip LLM
-else:
-    insert_message(conn, message_hash, json_data)  # New message, proceed
-    result = await classify_with_llm(text)
+- Keep labeled datasets **outside the repository**.
+- To see whether a path matches an ignore rule: `git check-ignore -v --no-index path\to\file.csv`. No output means
+  no rule matches, so `git add` would include the file. A match only keeps new files out: it does not untrack a
+  file that is already committed and says nothing about what the Git history contains.
+
+## Tests
+
+```powershell
+uv run pytest
 ```
 
-### 3. LLM Classification (llm_classifier.py)
+No `.env`, Telegram account, OpenAI key or `profile.txt` is needed. `tests/conftest.py` sets dummy settings,
+disables `.env` loading, runs each test in a temporary folder and blocks non-loopback connections made through
+Python's `socket` module. That guard catches accidental network calls from Python code; it does not cover native
+extensions or subprocesses. Telegram and OpenAI clients are replaced by fakes or never called.
 
-Classifies messages as "offer" or "not_offer":
-
-```python
-response = openai.ChatCompletion.create(
-    model="gpt-4",
-    messages=[
-        {
-            "role": "system",
-            "content": "You are a classifier. Respond only with: offer or not_offer"
-        },
-        {"role": "user", "content": text}
-    ],
-    temperature=0,
-    max_tokens=1
-)
-```
-
-### 4. Alert Notification (notifier.py)
-
-Sends alerts when offers are detected:
-
-```python
-async def send_alert(text, channel, sender, timestamp, llm_result):
-    alert_msg = f"[ALERT] Offer detected!\n..."
-    print(alert_msg)
-```
-
----
-
-## 📊 Performance & Costs
-
-### Efficiency Metrics
-
-- **Message Processing**: O(1) heuristic filter + O(1) hash lookup + O(1) LLM call (if needed)
-- **Deduplication**: ~80% of messages already in cache (no LLM call)
-- **Heuristic Filter**: ~70% messages filtered (no LLM call)
-- **Total LLM calls**: ~20% of all messages
-
-### Cost Analysis (per 1000 messages)
-
-| Component | Cost |
-|-----------|------|
-| GPT-4 (200 calls @ $0.03/1k) | $0.006 |
-| Database operations | Free (local SQLite) |
-| Telegram API | Free |
-| **Total** | **$0.006 per 1000 messages** |
-
----
-
-## 📚 Project Structure
+## Project structure
 
 ```
-MedAlert/
-├── README.md                    # This file
-├── ROADMAP.md                   # 3-month development roadmap
-├── config.py                    # Configuration & target channels
-├── db.py                        # SQLite deduplication cache
-├── telegram_ingestor.py         # Main message ingestion pipeline
-├── text_processor.py            # Heuristic filtering
-├── llm_classifier.py            # OpenAI GPT-4 classification
-├── notifier.py                  # Alert notification
-├── pyproject.toml               # Project metadata
-├── requirements.txt             # Python dependencies
-├── .env                         # Environment variables (not in repo)
-├── .env.example                 # Environment template
-├── .gitignore                   # Git ignore rules
-├── tests/
-│   ├── DBTest.py               # Database tests
-│   ├── TextProcessungTest.py   # Text processor tests
-│   └── NotifierTest.py         # Notifier tests
-└── *.session                    # Telegram session files (not in repo)
+config.py               channels, job keywords, settings from .env
+telegram_ingestor.py    monitor: Telegram listener and processing pipeline
+text_processor.py       normalization and keyword prefilter
+db.py                   SQLite dedup cache
+llm_classifier.py       profile loading and LLM classification
+notifier.py             console alerts
+export_messages.py      CSV export for labeling (with overwrite protection)
+profile.example.txt     template for your local, gitignored profile.txt
+tests/                  pytest suite and test isolation (conftest.py)
 ```
 
----
+## Planned
 
-## 🔐 Security
+- Evaluate the classifier with [DeepEval](https://github.com/confident-ai/deepeval) against a manually labeled set
+  built with the exporter. Not implemented yet.
 
-- **Credentials**: Store API keys in `.env` file (never commit)
-- **Database**: Uses local SQLite with WAL mode for reliability
-- **Telegram**: Session files are not committed to git
+## Author
 
-See `.env.example` for required configuration.
-
----
-
-## 📈 Next Steps
-
-### For Users
-1. Set up `.env` with your credentials
-2. Add target channels to `config.py`
-3. Run `python -m telegram_ingestor`
-4. Monitor console for alerts
-
-### For Developers
-1. Read [ROADMAP.md](ROADMAP.md) for 3-month development plan
-2. Run tests: `python -m unittest discover tests -v`
-3. Explore the codebase and extend as needed
-
----
-
-## 🎓 What This Demonstrates
-
-This project showcases:
-
-- **LLM Integration**: Production-grade OpenAI API usage with cost optimization
-- **System Design**: Well-architected pipeline with clear separation of concerns
-- **Cost Optimization**: 70%+ reduction through intelligent heuristic filtering
-- **Production Patterns**: Caching, deduplication, error handling
-- **Async Architecture**: Non-blocking message processing
-- **Testing**: Comprehensive unit test coverage
-- **Database Design**: SQLite with efficient query patterns
-
----
-
-## 🤝 Contributing
-
-Interested in extending this project? See [ROADMAP.md](ROADMAP.md) for potential enhancements including:
-
-- Confidence scoring and structured LLM outputs
-- Retrieval Augmented Generation (RAG) for context-aware classification
-- Multi-channel notifications (email, webhooks, Telegram bot)
-- Performance monitoring and observability
-
----
-
-## 📄 License
-
-MIT License - see LICENSE file
-
----
-
-## 👤 Author
-
-Built as a portfolio project demonstrating GenAI integration, system design, and production-grade code practices.
-
----
-
-## 🆘 Troubleshooting
-
-### "No module named 'telethon'"
-```bash
-pip install -r requirements.txt
-```
-
-### "Invalid API credentials"
-- Check `.env` file exists and has correct values
-- Verify credentials from [my.telegram.org](https://my.telegram.org)
-
-### "OpenAI API rate limit exceeded"
-- The system should handle this gracefully
-- Check `GPT_API_KEY` is valid in `.env`
-- Consider using GPT-3.5-turbo for higher rate limits
-
-### "Database locked"
-SQLite is configured with WAL mode to handle concurrent access. If issues persist:
-```bash
-rm -f messages_cache.db messages_cache.db-wal messages_cache.db-shm
-```
-
----
-
-## 📞 Questions?
-
-Open an issue on GitHub or review [ROADMAP.md](ROADMAP.md) for more details about the project direction.
+[xYaelx](https://github.com/xYaelx)
